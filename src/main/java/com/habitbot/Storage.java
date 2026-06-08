@@ -17,8 +17,8 @@ import java.util.Map;
 public class Storage {
 
     private static Connection getConnection() throws SQLException {
-        String url = System.getenv("DATABASE_URL");
-        // Railway даёт postgresql:// но JDBC нужен jdbc:postgresql://
+        String url = System.getenv("DATABASE_PUBLIC_URL");
+        if (url == null) url = System.getenv("DATABASE_URL");
         if (url != null && url.startsWith("postgresql://")) {
             url = url.replace("postgresql://", "jdbc:postgresql://");
         }
