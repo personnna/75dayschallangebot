@@ -34,6 +34,8 @@ public class HabitBot extends TelegramLongPollingBot {
             "🌟 Ты сильнее чем думаешь!"
     };
 
+    private static final long ADMIN_ID = 1024602209L;
+
     public HabitBot() {
         startDailyReminder();
         log.info("Бот запущен!");
@@ -183,6 +185,7 @@ public class HabitBot extends TelegramLongPollingBot {
             case "✅ Отметить таск" -> handleShowTasks(chatId);
             case "📊 Статус", "/status" -> handleStatus(chatId);
             case "❓ Помощь", "/help" -> handleHelp(chatId);
+            case "/admin" -> handleAdmin(chatId);
             default -> sendMsg(chatId, "Используй кнопки внизу 😊", mainKeyboard());
         }
     }
@@ -414,5 +417,24 @@ public class HabitBot extends TelegramLongPollingBot {
         } catch (TelegramApiException e) {
             log.severe("Ошибка: " + e.getMessage());
         }
+    }
+
+    private void handleAdmin(long chatId) {
+        if (chatId != ADMIN_ID) {
+            sendMsg(chatId, "Нет доступа.", mainKeyboard());
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("👑 Admin панель\n\n");
+        sb.append("👥 Всего пользователей: ").append(users.size()).append("\n\n");
+
+        for (Long id : users.keySet()) {
+            UserData data = users.get(id);
+            sb.append("🔹 ID: ").append(id).append("\n");
+            sb.append("   День: ").append(data.days).append("/75\n");
+            sb.append("   Разделов: ").append(data.sections.size()).append("\n");
+            sb.append("   Пропущено: ").append(data.missedDays).append("\n\n");
+        }
+        sendMsg(chatId, sb.toString(), mainKeyboard());
     }
 }
