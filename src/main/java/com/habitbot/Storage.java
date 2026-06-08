@@ -18,6 +18,10 @@ public class Storage {
 
     private static Connection getConnection() throws SQLException {
         String url = System.getenv("DATABASE_URL");
+        // Railway даёт postgresql:// но JDBC нужен jdbc:postgresql://
+        if (url != null && url.startsWith("postgresql://")) {
+            url = url.replace("postgresql://", "jdbc:postgresql://");
+        }
         return DriverManager.getConnection(url);
     }
 
