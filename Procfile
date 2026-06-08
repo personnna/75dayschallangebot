@@ -1,0 +1,1 @@
+worker: java -jar target/habit-tracker-bot-1.0-SNAPSHOT-jar-with-dependencies.jar
