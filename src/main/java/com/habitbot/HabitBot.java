@@ -54,9 +54,11 @@ public class HabitBot extends TelegramLongPollingBot {
         row1.add(new KeyboardButton("📊 Статус"));
         KeyboardRow row2 = new KeyboardRow();
         row2.add(new KeyboardButton("➕ Добавить раздел"));
-        row2.add(new KeyboardButton("❓ Помощь"));
+        row2.add(new KeyboardButton("🗑 Удалить раздел"));
+        KeyboardRow row3 = new KeyboardRow();
+        row3.add(new KeyboardButton("❓ Помощь"));
         ReplyKeyboardMarkup kb = new ReplyKeyboardMarkup();
-        kb.setKeyboard(List.of(row1, row2));
+        kb.setKeyboard(List.of(row1, row2, row3));
         kb.setResizeKeyboard(true);
         return kb;
     }
@@ -178,6 +180,11 @@ public class HabitBot extends TelegramLongPollingBot {
             return;
         }
 
+        if (data != null && data.state == UserData.State.WAITING_DELETE_SECTION) {
+            handleDeleteSection(chatId, data, text);
+            return;
+        }
+
         switch (text) {
             case "/start" -> handleStart(chatId);
             case "➕ Добавить раздел" -> handleAddSectionStart(chatId);
@@ -186,6 +193,7 @@ public class HabitBot extends TelegramLongPollingBot {
             case "📊 Статус", "/status" -> handleStatus(chatId);
             case "❓ Помощь", "/help" -> handleHelp(chatId);
             case "/admin" -> handleAdmin(chatId);
+            case "🗑 Удалить раздел" -> handleDeleteSectionStart(chatId);
             default -> sendMsg(chatId, "Используй кнопки внизу 😊", mainKeyboard());
         }
     }
@@ -323,10 +331,18 @@ public class HabitBot extends TelegramLongPollingBot {
             sendMsg(chatId, "Сначала добавь разделы!", mainKeyboard());
             return;
         }
+
+        // дебаг
+        log.info("Sections: " + data.sections);
+        log.info("Tasks: " + data.tasks);
+
+        InlineKeyboardMarkup keyboard = tasksKeyboard(data);
+        log.info("Keyboard rows: " + keyboard.getKeyboard().size());
+
         SendMessage message = new SendMessage();
-        message.setChatId(chatId);
+        message.setChatId(String.valueOf(chatId));  // ← вот это! setChatId принимает String
         message.setText("Отмечай выполненные таски 👇");
-        message.setReplyMarkup(tasksKeyboard(data));
+        message.setReplyMarkup(keyboard);
         try {
             execute(message);
         } catch (TelegramApiException e) {
@@ -436,5 +452,35 @@ public class HabitBot extends TelegramLongPollingBot {
             sb.append("   Пропущено: ").append(data.missedDays).append("\n\n");
         }
         sendMsg(chatId, sb.toString(), mainKeyboard());
+    }
+
+    private void handleDeleteSectionStart(long chatId) {
+        UserData data = users.get(chatId);
+        if (data == null || data.sections.isEmpty()) {
+            sendMsg(chatId, "Нет разделов для удаления!", mainKeyboard());
+            return;
+        }
+        data.state = UserData.State.WAITING_DELETE_SECTION;
+        Storage.save(users);
+        StringBuilder sb = new StringBuilder("Какой раздел удалить? Нажми:\n\n");
+        for (String section : data.sections) {
+            sb.append("• ").append(section).append("\n");
+        }
+        sb.append("\nВведи название раздела точно как написано выше.");
+        sendMsg(chatId, sb.toString(), cancelKeyboard());
+    }
+
+    private void handleDeleteSection(long chatId, UserData data, String text) {
+        if (!data.sections.contains(text)) {
+            sendMsg(chatId, "Раздел «" + text + "» не найден!\nПопробуй ещё раз или нажми ❌ Отмена", cancelKeyboard());
+            return;
+        }
+        data.sections.remove(text);
+        data.tasks.remove(text);
+        data.doneTasks.remove(text);
+        data.state = UserData.State.IDLE;
+        Storage.save(users);
+        log.info("Пользователь " + chatId + " удалил раздел: " + text);
+        sendMsg(chatId, "🗑 Раздел «" + text + "» удалён!\n\n" + formatSections(data), mainKeyboard());
     }
 }

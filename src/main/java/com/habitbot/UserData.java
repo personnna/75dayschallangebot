@@ -17,7 +17,8 @@ public class UserData {
     public enum State {
         IDLE,
         WAITING_SECTION_NAME,
-        WAITING_TASKS
+        WAITING_TASKS,
+        WAITING_DELETE_SECTION
     }
 
     public State state = State.IDLE;
