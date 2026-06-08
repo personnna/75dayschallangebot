@@ -19,8 +19,20 @@ public class Storage {
     private static Connection getConnection() throws SQLException {
         String url = System.getenv("DATABASE_PUBLIC_URL");
         if (url == null) url = System.getenv("DATABASE_URL");
+
         if (url != null && url.startsWith("postgresql://")) {
-            url = url.replace("postgresql://", "jdbc:postgresql://");
+
+            url = url.replace("postgresql://", "");
+            String[] userInfo = url.split("@");
+            String[] credentials = userInfo[0].split(":");
+            String user = credentials[0];
+            String password = credentials[1];
+            String[] hostDb = userInfo[1].split("/");
+            String hostPort = hostDb[0];
+            String db = hostDb[1];
+
+            String jdbcUrl = "jdbc:postgresql://" + hostPort + "/" + db;
+            return DriverManager.getConnection(jdbcUrl, user, password);
         }
         return DriverManager.getConnection(url);
     }
