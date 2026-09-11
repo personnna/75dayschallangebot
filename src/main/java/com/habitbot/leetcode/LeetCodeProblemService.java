@@ -327,36 +327,30 @@ public final class LeetCodeProblemService {
                 .trim();
     }
 
-    public LeetCodeProblem problemByNumber(
-            int number
-    ) throws IOException, InterruptedException {
+    public LeetCodeProblem problemByNumber(int number)
+            throws IOException, InterruptedException {
 
         String query = """
-            query problemsetQuestionListV2(
-                $filters: QuestionFilterInput,
+            query questionList(
+                $categorySlug: String,
                 $limit: Int,
-                $searchKeyword: String,
                 $skip: Int,
-                $sortBy: QuestionSortByInput,
-                $categorySlug: String
+                $filters: QuestionListFilterInput
             ) {
-                problemsetQuestionListV2(
-                    filters: $filters
-                    limit: $limit
-                    searchKeyword: $searchKeyword
-                    skip: $skip
-                    sortBy: $sortBy
+                problemsetQuestionList: questionList(
                     categorySlug: $categorySlug
+                    limit: $limit
+                    skip: $skip
+                    filters: $filters
                 ) {
-                    questions {
+                    total
+                    questions: data {
                         questionFrontendId
                         title
                         titleSlug
-                        paidOnly
                         difficulty
+                        paidOnly
                     }
-                    totalLength
-                    hasMore
                 }
             }
             """;
@@ -364,12 +358,27 @@ public final class LeetCodeProblemService {
         ObjectNode variables =
                 mapper.createObjectNode();
 
+        variables.put(
+                "categorySlug",
+                ""
+        );
+
+        variables.put(
+                "skip",
+                0
+        );
+
+        variables.put(
+                "limit",
+                50
+        );
+
         ObjectNode filters =
                 mapper.createObjectNode();
 
         filters.put(
-                "filterCombineType",
-                "ALL"
+                "searchKeywords",
+                String.valueOf(number)
         );
 
         variables.set(
@@ -377,72 +386,80 @@ public final class LeetCodeProblemService {
                 filters
         );
 
-        variables.put(
-                "searchKeyword",
-                String.valueOf(number)
-        );
-
-        variables.put("limit", 20);
-        variables.put("skip", 0);
-        variables.put("categorySlug", "");
-
-        variables.putNull("sortBy");
-
         ObjectNode payload =
                 mapper.createObjectNode();
 
         payload.put(
-                "operationName",
-                "problemsetQuestionListV2"
+                "query",
+                query
         );
 
-        payload.put("query", query);
-        payload.set("variables", variables);
+        payload.put(
+                "operationName",
+                "questionList"
+        );
+
+        payload.set(
+                "variables",
+                variables
+        );
 
         JsonNode root =
                 postGraphQl(payload);
 
         JsonNode questions =
                 root.path("data")
-                        .path("problemsetQuestionListV2")
+                        .path("problemsetQuestionList")
                         .path("questions");
 
         if (!questions.isArray()) {
-            throw new IOException(
-                    "Invalid LeetCode response: " + root
+            throw new RuntimeException(
+                    "Invalid response from LeetCode"
             );
         }
 
+        String target =
+                String.valueOf(number);
+
         for (JsonNode question : questions) {
 
-            String id =
+            String frontendId =
                     question.path(
                             "questionFrontendId"
                     ).asText();
 
-            if (!id.equals(
-                    String.valueOf(number)
-            )) {
+            if (!target.equals(frontendId)) {
                 continue;
             }
 
-            if (question.path("paidOnly")
-                    .asBoolean(false)) {
+            boolean paidOnly =
+                    question.path(
+                            "paidOnly"
+                    ).asBoolean(false);
 
-                throw new IOException(
-                        "LeetCode #" + number
-                                + " is Premium-only."
+            if (paidOnly) {
+                throw new RuntimeException(
+                        "LeetCode #"
+                                + number
+                                + " is Premium only."
                 );
             }
 
             String slug =
-                    question.path("titleSlug")
-                            .asText();
+                    question.path(
+                            "titleSlug"
+                    ).asText();
+
+            if (slug.isBlank()) {
+                throw new RuntimeException(
+                        "Problem slug not found"
+                );
+            }
 
             return fetchDetails(slug);
         }
 
-        throw new IOException(
+        throw new RuntimeException(
                 "LeetCode problem #"
                         + number
                         + " not found."
