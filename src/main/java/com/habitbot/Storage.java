@@ -16,25 +16,76 @@ import java.util.Map;
 
 public class Storage {
 
-    private static Connection getConnection() throws SQLException {
-        String url = System.getenv("DATABASE_PUBLIC_URL");
-        if (url == null) url = System.getenv("DATABASE_URL");
+    private static Connection getConnection()
+            throws SQLException {
 
-        if (url != null && url.startsWith("postgresql://")) {
+        String url =
+                System.getenv(
+                        "DATABASE_PUBLIC_URL"
+                );
 
-            url = url.replace("postgresql://", "");
-            String[] userInfo = url.split("@");
-            String[] credentials = userInfo[0].split(":");
-            String user = credentials[0];
-            String password = credentials[1];
-            String[] hostDb = userInfo[1].split("/");
-            String hostPort = hostDb[0];
-            String db = hostDb[1];
+        if (url == null
+                || url.isBlank()) {
 
-            String jdbcUrl = "jdbc:postgresql://" + hostPort + "/" + db;
-            return DriverManager.getConnection(jdbcUrl, user, password);
+            url =
+                    System.getenv(
+                            "DATABASE_URL"
+                    );
         }
-        return DriverManager.getConnection(url);
+
+        if (url == null
+                || url.isBlank()) {
+
+            throw new SQLException(
+                    "Database URL is not configured"
+            );
+        }
+
+        if (url.startsWith("postgresql://")) {
+
+            url =
+                    url.replace(
+                            "postgresql://",
+                            ""
+                    );
+
+            String[] userInfo =
+                    url.split("@");
+
+            String[] credentials =
+                    userInfo[0].split(":");
+
+            String user =
+                    credentials[0];
+
+            String password =
+                    credentials[1];
+
+            String[] hostDb =
+                    userInfo[1].split("/");
+
+            String hostPort =
+                    hostDb[0];
+
+            String db =
+                    hostDb[1];
+
+            String jdbcUrl =
+                    "jdbc:postgresql://"
+                            + hostPort
+                            + "/"
+                            + db;
+
+            return DriverManager.getConnection(
+                    jdbcUrl,
+                    user,
+                    password
+            );
+        }
+
+        return DriverManager.getConnection(
+                url
+        );
     }
 
     public static void init() {
@@ -59,17 +110,42 @@ public class Storage {
     }
 
     public static void save(HashMap<Long, UserData> users) {
+
         try (Connection conn = getConnection()) {
+
             for (Long chatId : users.keySet()) {
+
                 UserData data = users.get(chatId);
-                String sections = String.join(",", data.sections);
-                String done = String.join(",", data.doneSections);
-                String date = data.lastActiveDate != null ? data.lastActiveDate.toString() : LocalDate.now().toString();
-                String tasks = serializeTasks(data.tasks);
-                String doneTasks = serializeTasks(data.doneTasks);
+
+                String sections =
+                        String.join(",", data.sections);
+
+                String done =
+                        String.join(",", data.doneSections);
+
+                String date =
+                        data.lastActiveDate != null
+                                ? data.lastActiveDate.toString()
+                                : LocalDate.now().toString();
+
+                String tasks =
+                        serializeTasks(data.tasks);
+
+                String doneTasks =
+                        serializeTasks(data.doneTasks);
 
                 String sql = """
-                    INSERT INTO users (chat_id, days, best_streak, missed_days, last_active, sections, done_sections, tasks, done_tasks)
+                    INSERT INTO users (
+                        chat_id,
+                        days,
+                        best_streak,
+                        missed_days,
+                        last_active,
+                        sections,
+                        done_sections,
+                        tasks,
+                        done_tasks
+                    )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (chat_id) DO UPDATE SET
                         days = EXCLUDED.days,
@@ -80,21 +156,101 @@ public class Storage {
                         done_sections = EXCLUDED.done_sections,
                         tasks = EXCLUDED.tasks,
                         done_tasks = EXCLUDED.done_tasks
-                """;
-                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    """;
+
+                try (PreparedStatement ps =
+                             conn.prepareStatement(sql)) {
+
                     ps.setLong(1, chatId);
                     ps.setInt(2, data.days);
                     ps.setInt(3, data.bestStreak);
                     ps.setInt(4, data.missedDays);
-                    ps.setDate(5, Date.valueOf(date));
+                    ps.setDate(
+                            5,
+                            Date.valueOf(date)
+                    );
                     ps.setString(6, sections);
                     ps.setString(7, done);
                     ps.setString(8, tasks);
                     ps.setString(9, doneTasks);
+
                     ps.executeUpdate();
                 }
             }
+
         } catch (SQLException e) {
+
+            System.out.println(
+                    "БД недоступна, сохраняем в файл: "
+                            + e.getMessage()
+            );
+
+            saveToFile(users);
+        }
+    }
+
+    private static void saveToFile(
+            HashMap<Long, UserData> users
+    ) {
+
+        try (java.io.PrintWriter writer =
+                     new java.io.PrintWriter(
+                             new java.io.FileWriter("users.txt")
+                     )) {
+
+            for (Long chatId : users.keySet()) {
+
+                UserData data =
+                        users.get(chatId);
+
+                String sections =
+                        String.join(
+                                ",",
+                                data.sections
+                        );
+
+                String doneSections =
+                        String.join(
+                                ",",
+                                data.doneSections
+                        );
+
+                String date =
+                        data.lastActiveDate != null
+                                ? data.lastActiveDate.toString()
+                                : LocalDate.now().toString();
+
+                String tasks =
+                        serializeTasks(
+                                data.tasks
+                        );
+
+                String doneTasks =
+                        serializeTasks(
+                                data.doneTasks
+                        );
+
+                writer.println(
+                        chatId + "~"
+                                + data.days + "~"
+                                + sections + "~"
+                                + doneSections + "~"
+                                + date + "~"
+                                + data.bestStreak + "~"
+                                + data.missedDays + "~"
+                                + tasks + "~"
+                                + doneTasks
+                );
+            }
+
+            System.out.println(
+                    "Сохранено в файл: "
+                            + users.size()
+                            + " пользователей"
+            );
+
+        } catch (java.io.IOException e) {
+
             e.printStackTrace();
         }
     }
