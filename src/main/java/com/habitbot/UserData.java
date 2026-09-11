@@ -55,7 +55,8 @@ public class UserData {
         SOLVING,
         WAITING_FOR_COMPLEXITY,
         WAITING_REVIEW,
-        WAITING_INSIGHT
+        WAITING_INSIGHT,
+        WAITING_PROBLEM_NUMBER
     }
 
     public UserData(int days, List<String> sections, List<String> doneSections) {

@@ -78,14 +78,21 @@ public class HabitBot extends TelegramLongPollingBot {
 
         KeyboardRow row2 = new KeyboardRow();
         row2.add(new KeyboardButton("🎲 Random Problem"));
-        row2.add(new KeyboardButton("📊 Progress"));
+        row2.add(new KeyboardButton("🔢 Problem by Number"));
 
-        ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
+        KeyboardRow row3 = new KeyboardRow();
+        row3.add(new KeyboardButton("📊 Progress"));
 
-        keyboard.setKeyboard(List.of(
-                row1,
-                row2
-        ));
+        ReplyKeyboardMarkup keyboard =
+                new ReplyKeyboardMarkup();
+
+        keyboard.setKeyboard(
+                List.of(
+                        row1,
+                        row2,
+                        row3
+                )
+        );
 
         keyboard.setResizeKeyboard(true);
 
@@ -169,58 +176,199 @@ public class HabitBot extends TelegramLongPollingBot {
         }
     }
 
+    private void handleComplexityAnswer(
+            long chatId,
+            UserData data,
+            String text
+    ) {
+
+        String lower =
+                text.toLowerCase();
+
+        if (!lower.contains("time")
+                || !lower.contains("space")) {
+
+            sendMsg(
+                    chatId,
+                    """
+                    Please include both:
+    
+                    Time: O(...)
+                    Space: O(...)
+                    """,
+                    mainKeyboard()
+            );
+
+            return;
+        }
+
+        sendMsg(
+                chatId,
+                """
+                ✅ Problem completed
+    
+                Your complexity analysis:
+    
+                %s
+                """.formatted(text),
+                mainKeyboard()
+        );
+
+        data.state =
+                UserData.State.IDLE;
+
+        data.currentProblemSlug = null;
+
+        Storage.save(users);
+    }
+
     // ─── Основная логика ──────────────────────────────────────────
     @Override
     public void onUpdateReceived(Update update) {
 
-        // Обработка нажатий на InlineKeyboard
+        // Inline keyboard callbacks
         if (update.hasCallbackQuery()) {
             handleCallback(update.getCallbackQuery());
             return;
         }
 
-        if (!update.hasMessage() || !update.getMessage().hasText()) return;
+        if (!update.hasMessage()
+                || !update.getMessage().hasText()) {
+            return;
+        }
 
-        String text = update.getMessage().getText().trim();
-        long chatId = update.getMessage().getChatId();
-        String username = update.getMessage().getFrom().getUserName();
+        String text =
+                update.getMessage()
+                        .getText()
+                        .trim();
 
-        log.info("[@" + username + " | " + chatId + "]: " + text);
+        long chatId =
+                update.getMessage()
+                        .getChatId();
 
-        UserData data = users.get(chatId);
-        if (data != null) checkAndResetDay(chatId, data);
+        String username =
+                update.getMessage()
+                        .getFrom()
+                        .getUserName();
+
+        log.info(
+                "[@"
+                        + username
+                        + " | "
+                        + chatId
+                        + "]: "
+                        + text
+        );
+
+
+        // ─────────────────────────────────────
+        // Ensure user always exists
+        // ─────────────────────────────────────
+
+        UserData data =
+                users.get(chatId);
+
+        if (data == null) {
+
+            data = new UserData(
+                    0,
+                    new ArrayList<>(),
+                    new ArrayList<>()
+            );
+
+            data.challengeDay = 1;
+            data.state = UserData.State.IDLE;
+
+            users.put(
+                    chatId,
+                    data
+            );
+
+            Storage.save(users);
+        }
+
+        checkAndResetDay(
+                chatId,
+                data
+        );
+
+
+        // ─────────────────────────────────────
+        // Cancel
+        // ─────────────────────────────────────
 
         if (text.equals("❌ Отмена")) {
-            if (data != null) {
-                data.state = UserData.State.IDLE;
-                data.currentSection = null;
-            }
-            sendMsg(chatId, "Отменено.", mainKeyboard());
+
+            data.state =
+                    UserData.State.IDLE;
+
+            data.currentSection = null;
+
+            Storage.save(users);
+
+            sendMsg(
+                    chatId,
+                    "Отменено.",
+                    mainKeyboard()
+            );
+
             return;
         }
 
-        if (data != null && data.state == UserData.State.WAITING_SECTION_NAME) {
-            handleSectionName(chatId, data, text);
+
+        // ─────────────────────────────────────
+        // OLD HABIT TRACKER STATES
+        // ─────────────────────────────────────
+
+        if (data.state
+                == UserData.State.WAITING_SECTION_NAME) {
+
+            handleSectionName(
+                    chatId,
+                    data,
+                    text
+            );
+
             return;
         }
 
-        if (data != null && data.state == UserData.State.WAITING_TASKS) {
-            handleTaskInput(chatId, data, text);
+        if (data.state
+                == UserData.State.WAITING_TASKS) {
+
+            handleTaskInput(
+                    chatId,
+                    data,
+                    text
+            );
+
             return;
         }
 
-        if (data != null && data.state == UserData.State.WAITING_DELETE_SECTION) {
-            handleDeleteSection(chatId, data, text);
+        if (data.state
+                == UserData.State.WAITING_DELETE_SECTION) {
+
+            handleDeleteSection(
+                    chatId,
+                    data,
+                    text
+            );
+
             return;
         }
 
-        if (data != null
-                && data.state
+
+        // ─────────────────────────────────────
+        // DSA REVIEW
+        // ─────────────────────────────────────
+
+        if (data.state
                 == UserData.State.WAITING_REVIEW) {
 
-            data.challengeReviewText = text;
+            data.challengeReviewText =
+                    text;
 
-            data.challengeReviewDone = true;
+            data.challengeReviewDone =
+                    true;
 
             data.state =
                     UserData.State.IDLE;
@@ -241,8 +389,12 @@ public class HabitBot extends TelegramLongPollingBot {
             return;
         }
 
-        if (data != null
-                && data.state
+
+        // ─────────────────────────────────────
+        // DAILY INSIGHT
+        // ─────────────────────────────────────
+
+        if (data.state
                 == UserData.State.WAITING_INSIGHT) {
 
             data.challengeInsightText =
@@ -270,17 +422,60 @@ public class HabitBot extends TelegramLongPollingBot {
             return;
         }
 
-        if (data != null
-                && text.matches("\\d+")
-                && data.state != UserData.State.SOLVING
-                && data.state != UserData.State.WAITING_FOR_COMPLEXITY
-                && data.state != UserData.State.WAITING_REVIEW
-                && data.state != UserData.State.WAITING_INSIGHT) {
+
+        // ─────────────────────────────────────
+        // COMPLEXITY ANSWER AFTER ACCEPTED
+        // ─────────────────────────────────────
+
+        if (data.state
+                == UserData.State.WAITING_FOR_COMPLEXITY) {
+
+            handleComplexityAnswer(
+                    chatId,
+                    data,
+                    text
+            );
+
+            return;
+        }
+
+
+        // ─────────────────────────────────────
+        // USER PRESSED "PROBLEM BY NUMBER"
+        // ─────────────────────────────────────
+
+        if (data.state
+                == UserData.State.WAITING_PROBLEM_NUMBER) {
+
+            if (!text.matches("\\d+")) {
+
+                sendMsg(
+                        chatId,
+                        """
+                        Please send only the LeetCode problem number.
+    
+                        Example:
+                        1
+                        217
+                        704
+                        """,
+                        mainKeyboard()
+                );
+
+                return;
+            }
 
             try {
 
                 int problemNumber =
-                        Integer.parseInt(text);
+                        Integer.parseInt(
+                                text
+                        );
+
+                data.state =
+                        UserData.State.IDLE;
+
+                Storage.save(users);
 
                 handleProblemNumber(
                         chatId,
@@ -300,23 +495,100 @@ public class HabitBot extends TelegramLongPollingBot {
             return;
         }
 
+
+        // ─────────────────────────────────────
+        // QUICK SHORTCUT:
+        // user simply sends "1", "217", etc.
+        // ─────────────────────────────────────
+
+        if (text.matches("\\d+")
+                && data.state
+                != UserData.State.SOLVING) {
+
+            try {
+
+                int problemNumber =
+                        Integer.parseInt(
+                                text
+                        );
+
+                handleProblemNumber(
+                        chatId,
+                        data,
+                        problemNumber
+                );
+
+            } catch (NumberFormatException e) {
+
+                sendMsg(
+                        chatId,
+                        "Invalid problem number.",
+                        mainKeyboard()
+                );
+            }
+
+            return;
+        }
+
+
+        // ─────────────────────────────────────
+        // COMMANDS / MAIN MENU
+        // ─────────────────────────────────────
+
         switch (text) {
 
-            case "/start" -> handleStart(chatId);
+            case "/start" ->
+                    handleStart(
+                            chatId
+                    );
 
-            case "🔥 DSA 75 Challenge", "/challenge" ->
-                    handleChallenge(chatId, data);
+            case "🔥 DSA 75 Challenge",
+                 "/challenge" ->
+                    handleChallenge(
+                            chatId,
+                            data
+                    );
 
-            case "🎲 Random Problem", "/random" ->
-                    handleRandom(chatId, data);
+            case "🎲 Random Problem",
+                 "/random" ->
+                    handleRandom(
+                            chatId,
+                            data
+                    );
 
-            case "📊 Progress", "/progress" ->
-                    handleStatus(chatId);
+            case "📊 Progress",
+                 "/progress" ->
+                    handleStatus(
+                            chatId
+                    );
+
+            case "🔢 Problem by Number" -> {
+
+                data.state =
+                        UserData.State.WAITING_PROBLEM_NUMBER;
+
+                Storage.save(users);
+
+                sendMsg(
+                        chatId,
+                        """
+                        🔢 Enter a LeetCode problem number.
+    
+                        Examples:
+    
+                        1 → Two Sum
+                        217 → Contains Duplicate
+                        704 → Binary Search
+                        """,
+                        mainKeyboard()
+                );
+            }
 
             default -> {
 
-                if (data != null
-                        && data.state
+                // If solving, any normal text message
+                // is treated as code submission
+                if (data.state
                         == UserData.State.SOLVING) {
 
                     String code =
@@ -334,7 +606,12 @@ public class HabitBot extends TelegramLongPollingBot {
 
                     sendMsg(
                             chatId,
-                            "Choose an option below.",
+                            """
+                            Choose an option below.
+    
+                            Or send a LeetCode problem number directly.
+                            Example: 1
+                            """,
                             mainKeyboard()
                     );
                 }
