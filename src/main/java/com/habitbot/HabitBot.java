@@ -1,5 +1,6 @@
 package com.habitbot;
 
+import com.habitbot.dsa.*;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -11,6 +12,17 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import com.habitbot.leetcode.LeetCodeClient;
+import com.habitbot.leetcode.LeetCodeSubmissionResult;
+import com.habitbot.leetcode.LeetCodeProblem;
+import com.habitbot.leetcode.LeetCodeProblemService;
+import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.MessageEntity;
+import com.habitbot.dsa.ChallengeDay;
+import com.habitbot.dsa.ChallengeCatalog;
+import com.habitbot.dsa.Difficulty;
+
+import com.habitbot.leetcode.LeetCodeProblem;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -25,6 +37,9 @@ public class HabitBot extends TelegramLongPollingBot {
     private static final Logger log = Logger.getLogger(HabitBot.class.getName());
     private HashMap<Long, UserData> users = Storage.load();
     private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private LeetCodeClient leetCodeClient;
+    private final LeetCodeProblemService problemService =
+            new LeetCodeProblemService();
 
     private static final String[] MOTIVATIONS = {
             "💪 Каждый день — это шаг к лучшей версии себя!",
@@ -33,6 +48,14 @@ public class HabitBot extends TelegramLongPollingBot {
             "🚀 Маленькие шаги каждый день = большие результаты!",
             "🌟 Ты сильнее чем думаешь!"
     };
+
+    private LeetCodeClient leetCode() {
+        if (leetCodeClient == null) {
+            leetCodeClient = new LeetCodeClient();
+        }
+
+        return leetCodeClient;
+    }
 
     private static final long ADMIN_ID = 1024602209L;
 
@@ -49,18 +72,24 @@ public class HabitBot extends TelegramLongPollingBot {
 
     // ─── Клавиатуры ───────────────────────────────────────────────
     private ReplyKeyboardMarkup mainKeyboard() {
+
         KeyboardRow row1 = new KeyboardRow();
-        row1.add(new KeyboardButton("✅ Отметить таск"));
-        row1.add(new KeyboardButton("📊 Статус"));
+        row1.add(new KeyboardButton("🔥 DSA 75 Challenge"));
+
         KeyboardRow row2 = new KeyboardRow();
-        row2.add(new KeyboardButton("➕ Добавить раздел"));
-        row2.add(new KeyboardButton("🗑 Удалить раздел"));
-        KeyboardRow row3 = new KeyboardRow();
-        row3.add(new KeyboardButton("❓ Помощь"));
-        ReplyKeyboardMarkup kb = new ReplyKeyboardMarkup();
-        kb.setKeyboard(List.of(row1, row2, row3));
-        kb.setResizeKeyboard(true);
-        return kb;
+        row2.add(new KeyboardButton("🎲 Random Problem"));
+        row2.add(new KeyboardButton("📊 Progress"));
+
+        ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
+
+        keyboard.setKeyboard(List.of(
+                row1,
+                row2
+        ));
+
+        keyboard.setResizeKeyboard(true);
+
+        return keyboard;
     }
 
     private ReplyKeyboardMarkup cancelKeyboard() {
@@ -185,27 +214,145 @@ public class HabitBot extends TelegramLongPollingBot {
             return;
         }
 
+        if (data != null
+                && data.state
+                == UserData.State.WAITING_REVIEW) {
+
+            data.challengeReviewText = text;
+
+            data.challengeReviewDone = true;
+
+            data.state =
+                    UserData.State.IDLE;
+
+            Storage.save(users);
+
+            sendMsg(
+                    chatId,
+                    "✅ Review saved.",
+                    mainKeyboard()
+            );
+
+            handleChallenge(
+                    chatId,
+                    data
+            );
+
+            return;
+        }
+
+        if (data != null
+                && data.state
+                == UserData.State.WAITING_INSIGHT) {
+
+            data.challengeInsightText =
+                    text;
+
+            data.challengeInsightDone =
+                    true;
+
+            data.state =
+                    UserData.State.IDLE;
+
+            Storage.save(users);
+
+            sendMsg(
+                    chatId,
+                    "✅ Insight saved.",
+                    mainKeyboard()
+            );
+
+            handleChallenge(
+                    chatId,
+                    data
+            );
+
+            return;
+        }
+
+        if (data != null
+                && text.matches("\\d+")
+                && data.state != UserData.State.SOLVING
+                && data.state != UserData.State.WAITING_FOR_COMPLEXITY
+                && data.state != UserData.State.WAITING_REVIEW
+                && data.state != UserData.State.WAITING_INSIGHT) {
+
+            try {
+
+                int problemNumber =
+                        Integer.parseInt(text);
+
+                handleProblemNumber(
+                        chatId,
+                        data,
+                        problemNumber
+                );
+
+            } catch (NumberFormatException e) {
+
+                sendMsg(
+                        chatId,
+                        "Invalid problem number.",
+                        mainKeyboard()
+                );
+            }
+
+            return;
+        }
+
         switch (text) {
+
             case "/start" -> handleStart(chatId);
-            case "➕ Добавить раздел" -> handleAddSectionStart(chatId);
-            case "/begin" -> handleBegin(chatId);
-            case "✅ Отметить таск" -> handleShowTasks(chatId);
-            case "📊 Статус", "/status" -> handleStatus(chatId);
-            case "❓ Помощь", "/help" -> handleHelp(chatId);
-            case "/admin" -> handleAdmin(chatId);
-            case "🗑 Удалить раздел" -> handleDeleteSectionStart(chatId);
-            default -> sendMsg(chatId, "Используй кнопки внизу 😊", mainKeyboard());
+
+            case "🔥 DSA 75 Challenge", "/challenge" ->
+                    handleChallenge(chatId, data);
+
+            case "🎲 Random Problem", "/random" ->
+                    handleRandom(chatId, data);
+
+            case "📊 Progress", "/progress" ->
+                    handleStatus(chatId);
+
+            default -> {
+
+                if (data != null
+                        && data.state
+                        == UserData.State.SOLVING) {
+
+                    String code =
+                            extractCodeFromTelegram(
+                                    update.getMessage()
+                            );
+
+                    handleCodeSubmission(
+                            chatId,
+                            data,
+                            code
+                    );
+
+                } else {
+
+                    sendMsg(
+                            chatId,
+                            "Choose an option below.",
+                            mainKeyboard()
+                    );
+                }
+            }
         }
     }
 
     // ─── Обработка нажатий InlineKeyboard ────────────────────────
-    private void handleCallback(org.telegram.telegrambots.meta.api.objects.CallbackQuery callback) {
+    private void handleCallback(
+            org.telegram.telegrambots.meta.api.objects.CallbackQuery callback
+    ) {
+
         String callbackData = callback.getData();
         long chatId = callback.getMessage().getChatId();
         int messageId = callback.getMessage().getMessageId();
+
         UserData data = users.get(chatId);
 
-        // Ответ на callback чтобы убрать часики
         try {
             AnswerCallbackQuery answer = new AnswerCallbackQuery();
             answer.setCallbackQueryId(callback.getId());
@@ -214,60 +361,463 @@ public class HabitBot extends TelegramLongPollingBot {
             log.severe("Ошибка AnswerCallbackQuery: " + e.getMessage());
         }
 
+        if (callbackData.startsWith("challenge_complete_")) {
+
+            if (data == null) {
+                return;
+            }
+
+            int completedDay = Integer.parseInt(
+                    callbackData.substring(
+                            "challenge_complete_".length()
+                    )
+            );
+
+            if (completedDay != data.challengeDay) {
+                return;
+            }
+
+            if (data.challengeDay < 75) {
+
+                data.challengeDay++;
+
+                Storage.save(users);
+
+                sendMsg(
+                        chatId,
+                        "✅ Day " + completedDay
+                                + " completed!",
+                        mainKeyboard()
+                );
+
+                handleChallenge(chatId, data);
+
+            } else {
+
+                sendMsg(
+                        chatId,
+                        "🏆 You completed DSA 75!",
+                        mainKeyboard()
+                );
+            }
+
+            return;
+        }
+
+        if (callbackData.equals(
+                "challenge_locked"
+        )) {
+
+            sendMsg(
+                    chatId,
+                    """
+                    🔒 Complete all four blocks first:
+        
+                    📚 Learn
+                    💻 Practice
+                    🔍 Review
+                    🧠 Insight
+                    """,
+                    mainKeyboard()
+            );
+
+            return;
+        }
+
+        if (callbackData.equals(
+                "challenge_practice"
+        )) {
+
+            if (!data.challengeConceptDone) {
+
+                sendMsg(
+                        chatId,
+                        """
+                        📚 Finish today's learning block first.
+        
+                        Learn the concept before starting practice.
+                        """,
+                        mainKeyboard()
+                );
+
+                return;
+            }
+
+            data.practiceMode =
+                    UserData.PracticeMode.CHALLENGE;
+
+            Storage.save(users);
+
+            startChallengeProblem(
+                    chatId,
+                    data
+            );
+
+            return;
+        }
+
+        // RANDOM
+        if (callbackData.startsWith("random_")) {
+
+            if (data == null) {
+                return;
+            }
+
+            String value =
+                    callbackData.substring(
+                            "random_".length()
+                    );
+
+            Difficulty difficulty =
+                    Difficulty.valueOf(
+                            value.toUpperCase()
+                    );
+
+            try {
+
+                LeetCodeProblem problem =
+                        problemService.randomProblem(
+                                difficulty,
+                                data.lastRandomProblemSlug
+                        );
+
+                data.currentProblemSlug =
+                        problem.slug();
+
+                data.lastRandomProblemSlug =
+                        problem.slug();
+
+                data.state =
+                        UserData.State.SOLVING;
+
+                Storage.save(users);
+
+                String text = """
+                🎲 RANDOM PROBLEM
+
+                %d. %s
+                Difficulty: %s
+
+                %s
+
+                ✍️ Java starter code
+
+                %s
+
+                Send your solution as the next Telegram message.
+                """.formatted(
+                        problem.frontendId(),
+                        problem.title(),
+                        problem.difficulty(),
+                        problem.description(),
+                        problem.javaTemplate()
+                );
+
+                sendLongMsg(
+                        chatId,
+                        text
+                );
+
+            } catch (Exception e) {
+
+                e.printStackTrace();
+
+                sendMsg(
+                        chatId,
+                        "❌ Could not load a LeetCode problem:\n"
+                                + e.getMessage(),
+                        mainKeyboard()
+                );
+            }
+
+            return;
+        }
+
+        if (callbackData.equals(
+                "challenge_learn_done"
+        )) {
+
+            data.challengeConceptDone = true;
+
+            Storage.save(users);
+
+            sendMsg(
+                    chatId,
+                    "✅ Learning block completed.",
+                    mainKeyboard()
+            );
+
+            handleChallenge(
+                    chatId,
+                    data
+            );
+
+            return;
+        }
+
+        if (callbackData.equals(
+                "challenge_review"
+        )) {
+
+            data.state =
+                    UserData.State.WAITING_REVIEW;
+
+            Storage.save(users);
+
+            sendMsg(
+                    chatId,
+                    """
+                    🔍 REVIEW
+        
+                    Think about today's practice.
+        
+                    What went wrong?
+                    What could you improve?
+                    Was there a better approach?
+        
+                    Send your review as one message.
+                    """,
+                    mainKeyboard()
+            );
+
+            return;
+        }
+
+        if (callbackData.equals(
+                "challenge_insight"
+        )) {
+
+            data.state =
+                    UserData.State.WAITING_INSIGHT;
+
+            Storage.save(users);
+
+            sendMsg(
+                    chatId,
+                    """
+                    🧠 DAILY INSIGHT
+        
+                    Record the most important thing
+                    you learned today.
+        
+                    Good examples:
+        
+                    Pattern: Sliding Window
+                    Mistake: moved left pointer too late
+                    Insight: maintain the invariant before expanding
+                    """,
+                    mainKeyboard()
+            );
+
+            return;
+        }
+
+        if (callbackData.equals(
+                "challenge_complete"
+        )) {
+
+            if (!data.canCompleteChallengeDay()) {
+
+                return;
+            }
+
+            int finishedDay =
+                    data.challengeDay;
+
+            if (finishedDay == 75) {
+
+                sendMsg(
+                        chatId,
+                        """
+                        🏆 DSA 75 COMPLETE
+        
+                        75 / 75 days completed.
+        
+                        You finished the entire roadmap.
+                        """,
+                        mainKeyboard()
+                );
+
+                return;
+            }
+
+            data.challengeDay++;
+
+            data.resetChallengeDayProgress();
+
+            Storage.save(users);
+
+            sendMsg(
+                    chatId,
+                    """
+                    ✅ DAY %d COMPLETE
+        
+                    Next up:
+        
+                    DAY %d / 75
+                    """.formatted(
+                            finishedDay,
+                            data.challengeDay
+                    ),
+                    mainKeyboard()
+            );
+
+            handleChallenge(
+                    chatId,
+                    data
+            );
+
+            return;
+        }
+
+        if (callbackData.equals(
+                "challenge_learn"
+        )) {
+
+            ChallengeDay day =
+                    ChallengeCatalog.getDay(
+                            data.challengeDay
+                    );
+
+            String patterns =
+                    day.patterns().isEmpty()
+                            ? "No specific patterns today."
+                            : "• "
+                            + String.join(
+                            "\n• ",
+                            day.patterns()
+                    );
+
+            InlineKeyboardButton done =
+                    new InlineKeyboardButton();
+
+            done.setText(
+                    "✅ I've learned this"
+            );
+
+            done.setCallbackData(
+                    "challenge_learn_done"
+            );
+
+            InlineKeyboardMarkup keyboard =
+                    new InlineKeyboardMarkup();
+
+            keyboard.setKeyboard(
+                    List.of(
+                            List.of(done)
+                    )
+            );
+
+            sendInlineMsg(
+                    chatId,
+                    """
+                    📚 STUDY BLOCK
+        
+                    Topic:
+                    %s
+        
+                    Focus on:
+        
+                    %s
+        
+                    Recommended time:
+                    45 minutes
+        
+                    Don't memorize code.
+                    Understand when and why the pattern works.
+                    """.formatted(
+                            day.topic(),
+                            patterns
+                    ),
+                    keyboard
+            );
+
+            return;
+        }
+
         if (callbackData.startsWith("section_")) {
-            // нажали на заголовок раздела — игнорируем
             return;
         }
 
         if (callbackData.startsWith("already_")) {
-            // таск уже выполнен
             return;
         }
 
         if (callbackData.startsWith("done_")) {
+
             String payload = callbackData.substring(5);
             String[] parts = payload.split("\\|", 2);
-            if (parts.length != 2) return;
+
+            if (parts.length != 2) {
+                return;
+            }
 
             String section = parts[0];
             String task = parts[1];
 
-            if (data == null) return;
+            if (data == null) {
+                return;
+            }
 
-            List<String> done = data.doneTasks.getOrDefault(section, new ArrayList<>());
+            List<String> done =
+                    data.doneTasks.getOrDefault(
+                            section,
+                            new ArrayList<>()
+                    );
+
             if (!done.contains(task)) {
                 done.add(task);
                 data.doneTasks.put(section, done);
                 data.lastActiveDate = LocalDate.now();
+
                 Storage.save(users);
-                log.info("Пользователь " + chatId + " выполнил таск: " + section + " | " + task);
             }
 
             if (data.allDone()) {
+
                 data.days++;
-                if (data.days > data.bestStreak) data.bestStreak = data.days;
+
+                if (data.days > data.bestStreak) {
+                    data.bestStreak = data.days;
+                }
+
                 data.resetDay();
                 Storage.save(users);
-                String motivation = MOTIVATIONS[(int)(Math.random() * MOTIVATIONS.length)];
-                // Убираем inline кнопки
+
                 try {
-                    EditMessageReplyMarkup edit = new EditMessageReplyMarkup();
+                    EditMessageReplyMarkup edit =
+                            new EditMessageReplyMarkup();
+
                     edit.setChatId(chatId);
                     edit.setMessageId(messageId);
-                    edit.setReplyMarkup(new InlineKeyboardMarkup());
+                    edit.setReplyMarkup(
+                            new InlineKeyboardMarkup()
+                    );
+
                     execute(edit);
+
                 } catch (TelegramApiException e) {
                     log.severe(e.getMessage());
                 }
-                sendMsg(chatId, "🎉 Все таски выполнены!\nДень " + data.days + " из 75 засчитан!\n\n" + motivation, mainKeyboard());
+
+                sendMsg(
+                        chatId,
+                        "🎉 Все таски выполнены!",
+                        mainKeyboard()
+                );
+
             } else {
-                // Обновляем кнопки — таск теперь показывает ✅
+
                 try {
-                    EditMessageReplyMarkup edit = new EditMessageReplyMarkup();
+                    EditMessageReplyMarkup edit =
+                            new EditMessageReplyMarkup();
+
                     edit.setChatId(chatId);
                     edit.setMessageId(messageId);
                     edit.setReplyMarkup(tasksKeyboard(data));
+
                     execute(edit);
+
                 } catch (TelegramApiException e) {
                     log.severe(e.getMessage());
                 }
@@ -352,7 +902,21 @@ public class HabitBot extends TelegramLongPollingBot {
 
     // ─── Остальные handlers ───────────────────────────────────────
     private void handleStart(long chatId) {
-        users.put(chatId, new UserData(0, new ArrayList<>(), new ArrayList<>()));
+        UserData data = users.get(chatId);
+
+        if (data == null) {
+
+            data = new UserData(
+                    0,
+                    new ArrayList<>(),
+                    new ArrayList<>()
+            );
+
+            data.challengeDay = 1;
+
+            users.put(chatId, data);
+            Storage.save(users);
+        }
         Storage.save(users);
         log.info("Новый пользователь: " + chatId);
         sendMsg(chatId, """
@@ -364,6 +928,87 @@ public class HabitBot extends TelegramLongPollingBot {
                 
                 Когда добавишь всё — напиши /begin 🚀
                 """, mainKeyboard());
+    }
+
+    private void handleProblemNumber(
+            long chatId,
+            UserData data,
+            int number
+    ) {
+
+        try {
+
+            sendMsg(
+                    chatId,
+                    "🔎 Loading LeetCode #" + number + "...",
+                    mainKeyboard()
+            );
+
+            LeetCodeProblem problem =
+                    problemService.problemByNumber(
+                            number
+                    );
+
+            data.currentProblemSlug =
+                    problem.slug();
+
+            data.practiceMode =
+                    UserData.PracticeMode.NONE;
+
+            data.state =
+                    UserData.State.SOLVING;
+
+            Storage.save(users);
+
+            String header = """
+                💻 LEETCODE #%d
+
+                %s
+                Difficulty: %s
+
+                """.formatted(
+                    problem.frontendId(),
+                    problem.title(),
+                    problem.difficulty()
+            );
+
+            sendLongMsg(
+                    chatId,
+                    header
+                            + problem.description()
+            );
+
+            sendLongMsg(
+                    chatId,
+                    """
+                    ✍️ Java starter code
+    
+                    %s
+    
+                    Send your solution as the next message.
+                    """.formatted(
+                            problem.javaTemplate()
+                    )
+            );
+
+        }  catch (Exception e) {
+
+            e.printStackTrace();
+
+            sendMsg(
+                    chatId,
+                    """
+                            ❌ Couldn't load LeetCode #%d
+                            
+                            Error:
+                            %s
+                            """.formatted(
+                            number,
+                            e.getMessage()
+                    ),
+                    mainKeyboard()
+            );
+        }
     }
 
     private void handleBegin(long chatId) {
@@ -482,5 +1127,572 @@ public class HabitBot extends TelegramLongPollingBot {
         Storage.save(users);
         log.info("Пользователь " + chatId + " удалил раздел: " + text);
         sendMsg(chatId, "🗑 Раздел «" + text + "» удалён!\n\n" + formatSections(data), mainKeyboard());
+    }
+
+    private void handleChallenge(
+            long chatId,
+            UserData data
+    ) {
+
+        if (data == null) {
+            return;
+        }
+
+        ChallengeDay day =
+                ChallengeCatalog.getDay(
+                        data.challengeDay
+                );
+
+        String patterns =
+                day.patterns().isEmpty()
+                        ? "—"
+                        : "• "
+                        + String.join(
+                        "\n• ",
+                        day.patterns()
+                );
+
+        String learn =
+                data.challengeConceptDone
+                        ? "✅"
+                        : "⬜";
+
+        String practice =
+                data.challengeProblemsSolved >= 2
+                        ? "✅"
+                        : "⬜";
+
+        String review =
+                data.challengeReviewDone
+                        ? "✅"
+                        : "⬜";
+
+        String insight =
+                data.challengeInsightDone
+                        ? "✅"
+                        : "⬜";
+
+        int completed = 0;
+
+        if (data.challengeConceptDone) completed++;
+        if (data.challengeProblemsSolved >= 2) completed++;
+        if (data.challengeReviewDone) completed++;
+        if (data.challengeInsightDone) completed++;
+
+
+        String text = """
+            🔥 DAY %d / 75
+
+            %s
+
+            📚 Today's topic:
+            %s
+
+            🧠 Patterns:
+            %s
+
+            ─────────────
+
+            Today's progress: %d / 4
+
+            %s Learn concept
+            %s Practice %d / 2
+            %s Review mistakes
+            %s Save insight
+
+            Daily system:
+            45 min — learn
+            90 min — practice
+            30 min — review
+            15 min — reflect
+            """.formatted(
+                day.day(),
+                day.section(),
+                day.topic(),
+                patterns,
+                completed,
+                learn,
+                practice,
+                data.challengeProblemsSolved,
+                review,
+                insight
+        );
+
+        sendInlineMsg(
+                chatId,
+                text,
+                challengeKeyboard(data)
+        );
+    }
+
+    private InlineKeyboardMarkup difficultyKeyboard() {
+
+        InlineKeyboardButton easy = new InlineKeyboardButton();
+        easy.setText("Easy");
+        easy.setCallbackData("random_easy");
+
+        InlineKeyboardButton medium = new InlineKeyboardButton();
+        medium.setText("Medium");
+        medium.setCallbackData("random_medium");
+
+        InlineKeyboardButton hard = new InlineKeyboardButton();
+        hard.setText("Hard");
+        hard.setCallbackData("random_hard");
+
+        InlineKeyboardMarkup keyboard = new InlineKeyboardMarkup();
+
+        keyboard.setKeyboard(List.of(
+                List.of(easy, medium, hard)
+        ));
+
+        return keyboard;
+    }
+
+    private void handleRandom(long chatId, UserData data) {
+
+        data.state =
+                UserData.State.CHOOSING_RANDOM_DIFFICULTY;
+
+        SendMessage message = new SendMessage();
+
+        message.setChatId(chatId);
+        message.setText("🎲 Choose difficulty:");
+        message.setReplyMarkup(difficultyKeyboard());
+
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            log.severe(e.getMessage());
+        }
+    }
+
+    private void startChallengeProblem(
+            long chatId,
+            UserData data
+    ) {
+
+        ChallengeDay day =
+                ChallengeCatalog.getDay(
+                        data.challengeDay
+                );
+
+        Difficulty difficulty =
+                challengeDifficultyForDay(
+                        data.challengeDay
+                );
+
+        try {
+
+            LeetCodeProblem problem =
+                    problemService.randomProblem(
+                            difficulty,
+                            data.currentProblemSlug
+                    );
+
+            data.currentProblemSlug =
+                    problem.slug();
+
+            data.practiceMode =
+                    UserData.PracticeMode.CHALLENGE;
+
+            data.state =
+                    UserData.State.SOLVING;
+
+            Storage.save(users);
+
+            String header = """
+                💻 DSA 75 PRACTICE
+
+                Day %d / 75
+                Topic: %s
+
+                %d. %s
+                Difficulty: %s
+
+                """.formatted(
+                    data.challengeDay,
+                    day.topic(),
+                    problem.frontendId(),
+                    problem.title(),
+                    problem.difficulty()
+            );
+
+            sendLongMsg(
+                    chatId,
+                    header
+                            + problem.description()
+            );
+
+            sendLongMsg(
+                    chatId,
+                    """
+                    ✍️ Java starter code
+    
+                    %s
+    
+                    Send your solution as the next message.
+                    """.formatted(
+                            problem.javaTemplate()
+                    )
+            );
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            data.state =
+                    UserData.State.IDLE;
+
+            Storage.save(users);
+
+            sendMsg(
+                    chatId,
+                    """
+                    ❌ Could not load a practice problem.
+    
+                    Try again.
+                    """,
+                    mainKeyboard()
+            );
+        }
+    }
+
+    private Difficulty challengeDifficultyForDay(
+            int day
+    ) {
+
+        if (day <= 12) {
+            return Difficulty.EASY;
+        }
+
+        if (day <= 60) {
+            return Difficulty.MEDIUM;
+        }
+
+        return Difficulty.HARD;
+    }
+
+
+
+    private void handleCodeSubmission(
+            long chatId,
+            UserData data,
+            String code
+    ) {
+        System.out.println(
+                "========== CODE SENT TO LEETCODE =========="
+        );
+
+        System.out.println(code);
+
+        System.out.println(
+                "============================================"
+        );
+
+        try {
+
+            LeetCodeSubmissionResult result =
+                    leetCode().submitAndWait(
+                            data.currentProblemSlug,
+                            code,
+                            "java"
+                    );
+
+            sendMsg(
+                    chatId,
+                    result.toTelegramMessage(),
+                    mainKeyboard()
+            );
+
+            if (result.accepted()) {
+                if (data.practiceMode == UserData.PracticeMode.CHALLENGE) {
+                    if (data.challengeProblemsSolved < 2) {
+                        data.challengeProblemsSolved++;
+                    }
+                } data.state = UserData.State.WAITING_FOR_COMPLEXITY;
+
+                Storage.save(users);
+
+                sendMsg(
+                        chatId,
+                        """
+                        Before we move on:
+    
+                        What is the time complexity?
+                        What is the space complexity?
+    
+                        Reply like:
+    
+                        Time: O(n)
+                        Space: O(n)
+                        """,
+                        mainKeyboard()
+                );
+            } else {
+
+                data.state =
+                        UserData.State.SOLVING;
+
+                Storage.save(users);
+            }
+
+        } catch (IllegalStateException e) {
+
+            e.printStackTrace();
+
+            sendMsg(
+                    chatId,
+                    """
+                    ⚠️ LeetCode judge is not connected yet.
+        
+                    Your solution was received, but I couldn't submit it for testing.
+        
+                    Try again after the LeetCode connection is configured.
+                    """,
+                    mainKeyboard()
+            );
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            sendMsg(
+                    chatId,
+                    """
+                    ❌ Something went wrong while checking your solution.
+        
+                    Your code was not lost.
+                    Please try submitting it again.
+                    """,
+                    mainKeyboard()
+            );
+        }
+    }
+
+    private InlineKeyboardMarkup challengeKeyboard(
+            UserData data
+    ) {
+
+        List<List<InlineKeyboardButton>> rows =
+                new ArrayList<>();
+
+
+        // LEARN
+        InlineKeyboardButton learn =
+                new InlineKeyboardButton();
+
+        learn.setText(
+                data.challengeConceptDone
+                        ? "✅ Concept learned"
+                        : "📚 Learn concept"
+        );
+
+        learn.setCallbackData("challenge_learn");
+
+        rows.add(List.of(learn));
+
+
+        // PRACTICE
+        InlineKeyboardButton practice =
+                new InlineKeyboardButton();
+
+        practice.setText(
+                data.challengeProblemsSolved >= 2
+                        ? "✅ Practice 2/2"
+                        : "💻 Practice "
+                        + data.challengeProblemsSolved
+                        + "/2"
+        );
+
+        practice.setCallbackData("challenge_practice");
+
+        rows.add(List.of(practice));
+
+
+        // REVIEW
+        InlineKeyboardButton review =
+                new InlineKeyboardButton();
+
+        review.setText(
+                data.challengeReviewDone
+                        ? "✅ Review completed"
+                        : "🔍 Review mistakes"
+        );
+
+        review.setCallbackData("challenge_review");
+
+        rows.add(List.of(review));
+
+
+        // INSIGHT
+        InlineKeyboardButton insight =
+                new InlineKeyboardButton();
+
+        insight.setText(
+                data.challengeInsightDone
+                        ? "✅ Insight saved"
+                        : "🧠 Save insight"
+        );
+
+        insight.setCallbackData("challenge_insight");
+
+        rows.add(List.of(insight));
+
+
+        // COMPLETE
+        InlineKeyboardButton complete =
+                new InlineKeyboardButton();
+
+        if (data.canCompleteChallengeDay()) {
+
+            complete.setText(
+                    "✅ Complete Day "
+                            + data.challengeDay
+            );
+
+            complete.setCallbackData(
+                    "challenge_complete"
+            );
+
+        } else {
+
+            complete.setText(
+                    "🔒 Complete Day"
+            );
+
+            complete.setCallbackData(
+                    "challenge_locked"
+            );
+        }
+
+        rows.add(List.of(complete));
+
+
+        InlineKeyboardMarkup keyboard =
+                new InlineKeyboardMarkup();
+
+        keyboard.setKeyboard(rows);
+
+        return keyboard;
+    }
+
+    private void sendInlineMsg(
+            long chatId,
+            String text,
+            InlineKeyboardMarkup keyboard
+    ) {
+
+        SendMessage message = new SendMessage();
+
+        message.setChatId(chatId);
+        message.setText(text);
+        message.setReplyMarkup(keyboard);
+
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void sendLongMsg(
+            long chatId,
+            String text
+    ) {
+
+        final int max = 3800;
+
+        int start = 0;
+
+        while (start < text.length()) {
+
+            int end =
+                    Math.min(
+                            start + max,
+                            text.length()
+                    );
+
+            if (end < text.length()) {
+
+                int newline =
+                        text.lastIndexOf(
+                                '\n',
+                                end
+                        );
+
+                if (newline > start) {
+                    end = newline;
+                }
+            }
+
+            String chunk =
+                    text.substring(
+                            start,
+                            end
+                    );
+
+            sendMsg(
+                    chatId,
+                    chunk,
+                    mainKeyboard()
+            );
+
+            start = end;
+
+            while (
+                    start < text.length()
+                            && text.charAt(start) == '\n'
+            ) {
+                start++;
+            }
+        }
+    }
+
+    private String extractCodeFromTelegram(Message message) {
+
+        String text = message.getText();
+
+        if (text == null) {
+            return "";
+        }
+
+        List<MessageEntity> entities =
+                message.getEntities();
+
+        if (entities == null || entities.isEmpty()) {
+            return text.trim();
+        }
+
+        StringBuilder result =
+                new StringBuilder(text);
+
+        entities.stream()
+                .filter(entity ->
+                        "spoiler".equals(entity.getType())
+                )
+                .sorted(
+                        Comparator.comparingInt(
+                                MessageEntity::getOffset
+                        ).reversed()
+                )
+                .forEach(entity -> {
+
+                    int start =
+                            entity.getOffset();
+
+                    int end =
+                            start + entity.getLength();
+
+                    if (start >= 0
+                            && end <= result.length()) {
+
+                        // Telegram removed || around the spoiler.
+                        // Restore them as Java boolean OR operators.
+                        result.insert(end, "||");
+                        result.insert(start, "||");
+                    }
+                });
+
+        return result.toString().trim();
     }
 }

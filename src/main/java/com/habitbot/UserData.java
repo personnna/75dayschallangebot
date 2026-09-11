@@ -13,16 +13,50 @@ public class UserData {
     public List<String> doneSections;
     public LocalDate lastActiveDate;
 
-    // Состояния диалога
+//    // Состояния диалога
+//    public enum State {
+//        IDLE,
+//        WAITING_SECTION_NAME,
+//        WAITING_TASKS,
+//        WAITING_DELETE_SECTION
+//    }
+
+    public State state = State.IDLE;
+    public String currentSection; // раздел который сейчас добавляем
+
+    public int challengeDay = 1;
+
+    public String lastRandomProblemSlug;
+
+    public boolean challengeConceptDone = false;
+
+    public int challengeProblemsSolved = 0;
+
+    public boolean challengeReviewDone = false;
+
+    public boolean challengeInsightDone = false;
+
+    public String challengeReviewText;
+    public String challengeInsightText;
+
+    public String currentProblemSlug;
+
+    public PracticeMode practiceMode =
+            PracticeMode.NONE;
+
     public enum State {
         IDLE,
         WAITING_SECTION_NAME,
         WAITING_TASKS,
-        WAITING_DELETE_SECTION
-    }
+        WAITING_DELETE_SECTION,
 
-    public State state = State.IDLE;
-    public String currentSection; // раздел который сейчас добавляем
+        CHALLENGE,
+        CHOOSING_RANDOM_DIFFICULTY,
+        SOLVING,
+        WAITING_FOR_COMPLEXITY,
+        WAITING_REVIEW,
+        WAITING_INSIGHT
+    }
 
     public UserData(int days, List<String> sections, List<String> doneSections) {
         this.days = days;
@@ -54,6 +88,41 @@ public class UserData {
         doneSections = new ArrayList<>();
         doneTasks = new HashMap<>();
     }
+
+    public boolean canCompleteChallengeDay() {
+
+        return challengeConceptDone
+                && challengeProblemsSolved >= 2
+                && challengeReviewDone
+                && challengeInsightDone;
+    }
+
+    public void resetChallengeDayProgress() {
+
+        challengeConceptDone = false;
+
+        challengeProblemsSolved = 0;
+
+        challengeReviewDone = false;
+
+        challengeInsightDone = false;
+
+        challengeReviewText = null;
+        challengeInsightText = null;
+
+        currentProblemSlug = null;
+
+        practiceMode = PracticeMode.NONE;
+
+        state = State.IDLE;
+    }
+
+    public enum PracticeMode {
+        NONE,
+        RANDOM,
+        CHALLENGE
+    }
+
 
     public boolean isNewDay() {
         return lastActiveDate != null && LocalDate.now().isAfter(lastActiveDate);
