@@ -13,4 +13,4 @@ WORKDIR /app
 
 COPY --from=build /app/target/*.jar app.jar
 
-CMD ["java", "-jar", "app.jar"]a", "-jar", "habit-tracker-bot-1.0-SNAPSHOT.jar"]
+CMD ["java", "-jar", "app.jar"]
